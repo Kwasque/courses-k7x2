@@ -28,7 +28,8 @@
 - **Photos automatiques** : l'appli cherche elle-même une photo à partir du nom :
   Open Food Facts pour les articles ; pour les recettes, TheMealDB (photos de plats), puis Openverse
   (photos Flickr…), et Wikimedia seulement en dernier recours.
-  Une photo ne plaît pas ? Bouton « Chercher une autre photo » dans la recette ou l'article.
+  Une photo ne plaît pas ? Bouton « Choisir une autre photo » dans la recette ou l'article :
+  il affiche toutes les photos déjà trouvées (sans nouvelle recherche).
   Le premier affichage d'une nouvelle liste peut prendre 1 à 2 minutes (Open Food Facts limite le nombre de recherches),
   ensuite l'adresse de chaque photo est mémorisée. En attendant, ou si rien n'est trouvé, un emoji s'affiche.
   Sans réseau, les emojis restent et la liste est utilisable. Menu « ⋯ » → *Rechercher à nouveau les photos* pour tout relancer.
@@ -36,10 +37,24 @@
   (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
   Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
 - **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v13` en `courses-v14`
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v14` en `courses-v15`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version,
   ou menu « ⋯ » → *Forcer la mise à jour de l'appli* (les listes sont conservées).
   La version installée est affichée en bas de ce menu.
+
+## Photos Pexels (recommandé)
+
+Avec une clé Pexels, les photos des articles **et** des recettes viennent d'abord de Pexels (bien plus jolies).
+
+1. Crée un compte gratuit sur https://www.pexels.com/api/ et récupère ta clé API.
+2. Dans l'appli : menu « ⋯ » → *Clé API Pexels* → colle la clé → *Enregistrer*.
+   La clé reste **uniquement sur le téléphone** (jamais sur GitHub). L'appli propose ensuite
+   de remplacer les photos de la liste en cours.
+3. Limite gratuite : **200 recherches par heure** (20 000 par mois). Une barre en haut du menu « ⋯ »
+   montre ce qui a été utilisé dans l'heure (compté par ce téléphone).
+   Chaque article ou recette coûte **1 recherche, une seule fois** : 15 photos sont récupérées d'un coup
+   et mémorisées. « Choisir une autre photo » est gratuit ; seul « Plus de photos » coûte 1 recherche.
+   Si le quota est atteint, l'appli se rabat sur les autres sources.
 
 ## Format du JSON
 

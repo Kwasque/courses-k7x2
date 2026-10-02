@@ -263,6 +263,22 @@
   .sheet button:first-of-type { border-top: 0; }
   .sheet svg { width: 20px; height: 20px; color: var(--muted); }
   .sheet .danger, .sheet .danger svg { color: var(--red); }
+  .sheet .ghost, .sheet .ghost:first-of-type { padding: 0 14px; border: 1px solid var(--line); margin-top: 10px; justify-content: center; font-size: 15px; }
+  .sheet .ghost small { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .sheet .ghost.lime { background: var(--lime); color: var(--ink); border-color: var(--lime); font-weight: 600; }
+  .sheet .ghost.lime svg { color: var(--ink); }
+  .sheet .fields input { width: 100%; }
+  .sheet .hint a { color: var(--lime); }
+  .picker { max-height: 82vh; overflow-y: auto; }
+  .pgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .sheet .pgrid button { padding: 0; border: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: var(--card2);
+    outline: 3px solid transparent; outline-offset: -3px; }
+  .sheet .pgrid button.on { outline-color: var(--lime); }
+  .pgrid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .quota { padding: 4px 4px 14px; border-bottom: 1px solid var(--line); }
+  .quota .goal-top span { font-size: 13px; }
+  .quota .bar.hot > i { background-color: var(--red); }
+  .qsub { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .sheet .ver { text-align: center; color: var(--dim); font-size: 12px; padding-top: 6px; }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 40;
     background: var(--lime); color: var(--ink); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 12px; white-space: nowrap; }
@@ -305,6 +321,7 @@
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     bag: '<path d="M5 8h14l-1.2 12H6.2z M9 8a3 3 0 0 1 6 0"/>',
     archive: '<path d="M3 4h18v5H3zM5 9v11h14V9M10 13h4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5M20 3.5v5h-5"/>'
   };
   const ic = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
@@ -318,15 +335,21 @@
   const OFF_RX = /(images\.openfoodfacts\.org\/.+)\.(100|200|400|full)\.jpg$/;
   const offSize = (u, size) => OFF_RX.test(u) ? String(u).replace(OFF_RX, `$1.${size}.jpg`) : u;
   // Liste d'URL à essayer, de la meilleure à la moins bonne (repli automatique si une taille n'existe pas)
-  const sizes = (u, best) => [...new Set((best === 'full' ? ['full', '400', '200'] : ['400', '200']).map(z => offSize(u, z)).concat(u))];
+  // Pexels : la taille se règle dans l'URL (on stocke la version 350 px de haut, assez pour les vignettes)
+  const PEX_RX = /^(https:\/\/images\.pexels\.com\/photos\/[^?]+)/;
+  const pexSize = (u, w) => { const m = PEX_RX.exec(u); return m ? `${m[1]}?auto=compress&cs=tinysrgb&w=${w}` : u; };
+  const sizes = (u, best) => PEX_RX.test(u) ? [...new Set([pexSize(u, best === 'full' ? 1880 : 940), u])]
+    : [...new Set((best === 'full' ? ['full', '400', '200'] : ['400', '200']).map(z => offSize(u, z)).concat(u))];
+  const thumbOf = u => PEX_RX.test(u) ? pexSize(u, 300) : u;
   function setSrc(im, list) { im.src = list[0]; if (list.length > 1) im.dataset.fb = list.slice(1).join('|'); }
   const uid = () => Math.random().toString(36).slice(2, 10);
   const slug = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const fmtDate = d => { try { return new Date(d + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' }); } catch { return d; } };
 
   // ---------- Photos automatiques ----------
-  // Articles → Open Food Facts uniquement.
-  // Recettes → TheMealDB (photos de plats), puis Openverse (photos Flickr…), Wikimedia en dernier recours.
+  // Avec une clé Pexels : Pexels d'abord (articles et recettes).
+  // Sinon / en repli — articles : Open Food Facts ; recettes : TheMealDB, Openverse, puis Wikimedia.
+  // Chaque recherche garde toutes les photos trouvées (alts) : en choisir une autre ne coûte aucune requête.
   const PHOTOS = 'courses.photos.v1';
   const RETRY_MS = 3 * 24 * 3600 * 1000; // on retente les « pas trouvé » après 3 jours
   let photoCache = {};
@@ -406,20 +429,53 @@
     return (d?.products || []).map(x => x.image_front_small_url || x.image_front_url).filter(Boolean);
   }
 
+  // ---------- Pexels (clé perso, stockée uniquement sur ce téléphone) ----------
+  // Limite Pexels : 200 recherches / heure. 1 recherche = 1 requête, qu'elle renvoie 1 ou 15 photos.
+  const PEX_KEY = 'courses.pexels.key', PEX_LOG = 'courses.pexels.log', PEX_INFO = 'courses.pexels.info';
+  const PEX_HOUR = 200, PEX_PER = 15;
+  const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  let pexKey = lsGet(PEX_KEY, '');
+  const pexUsed = () => lsGet(PEX_LOG, []).filter(t => Date.now() - t < 3600e3);
+  const pexErr = err => ({ quota: 'Quota Pexels de l’heure atteint', badkey: 'Clé Pexels refusée' })[err?.message] || 'Pexels injoignable';
+
+  async function pexSearch(q, page = 1, kind = 'r', key = pexKey) {
+    if (!key) throw new Error('nokey');
+    const used = pexUsed();
+    if (used.length >= PEX_HOUR) throw new Error('quota');
+    lsSet(PEX_LOG, [...used, Date.now()]);
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 9000);
+    try {
+      const r = await fetch(`https://api.pexels.com/v1/search?query=${enc(q)}&per_page=${PEX_PER}&page=${page}${kind === 'a' ? '&locale=fr-FR' : ''}`,
+        { headers: { Authorization: key }, signal: ctl.signal });
+      // Compteur mensuel renvoyé par Pexels (si le navigateur nous laisse le lire)
+      const rem = r.headers.get('X-Ratelimit-Remaining'), lim = r.headers.get('X-Ratelimit-Limit');
+      if (rem != null && lim != null) lsSet(PEX_INFO, { rem: +rem, lim: +lim, t: Date.now() });
+      if (r.status === 401 || r.status === 403) throw new Error('badkey');
+      if (r.status === 429) { lsSet(PEX_LOG, Array(PEX_HOUR).fill(Date.now())); throw new Error('quota'); }
+      if (!r.ok) throw new Error(r.status);
+      return ((await r.json()).photos || []).map(x => x.src?.medium).filter(Boolean);
+    } finally { clearTimeout(tm); }
+  }
+
   const inflight = {};
-  function lookup(k, kind, q, rayon, skip = []) {
+  function lookup(k, kind, q) {
     if (inflight[k]) return inflight[k];
-    const chain = kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF];
+    const fromPexels = q => pexSearch(q, 1, kind);
+    const chain = [...(pexKey ? [fromPexels] : []), ...(kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF])];
     return inflight[k] = (async () => {
       let networkOk = false;
       for (const f of chain) {
         try {
-          const u = (await f(q)).find(x => !skip.includes(x)); networkOk = true;
-          if (u) { photoCache[k] = { u, t: Date.now(), skip }; savePhotos(); return u; }
+          const list = await f(q); networkOk = true;
+          if (list.length) {
+            photoCache[k] = { u: list[0], t: Date.now(), alts: list.slice(0, 40), pg: f === fromPexels ? 1 : 0 };
+            savePhotos(); return list[0];
+          }
         }
-        catch { /* hors ligne ou service indisponible : on essaie le suivant */ }
+        catch { /* hors ligne, quota atteint ou service indisponible : on essaie le suivant */ }
       }
-      if (networkOk && !skip.length) { photoCache[k] = { none: true, t: Date.now() }; savePhotos(); }
+      if (networkOk) { photoCache[k] = { none: true, t: Date.now() }; savePhotos(); }
       return null;
     })().finally(() => delete inflight[k]);
   }
@@ -430,7 +486,7 @@
     document.querySelectorAll('.emo[data-k][data-q]').forEach(el => {
       const { k, kind, q, r } = el.dataset;
       if (!q || seen.has(k)) return; seen.add(k);
-      lookup(k, kind, q, r).then(u => {
+      lookup(k, kind, q).then(u => {
         document.querySelectorAll('.emo[data-k]').forEach(n => {
           if (n.dataset.k !== k) return;
           if (!u) { n.removeAttribute('data-k'); return; }
@@ -446,16 +502,39 @@
   }
   window.addEventListener('online', () => resolvePhotos());
 
-  async function nextPhoto(a, kind = 'a') {
-    const k = pkey(a, kind), c = photoCache[k] || {};
-    const skip = [...(c.skip || []), ...(c.u ? [c.u] : [])];
-    toast('Recherche d’une autre photo…');
-    const u = await lookup(k, kind, queryOf(a), String(a.rayon || '').toLowerCase(), skip);
-    if (!u) {
-      if (c.u) { photoCache[k] = { ...c, skip: [] }; savePhotos(); }   // on reboucle au début la prochaine fois
-      toast(navigator.onLine ? 'Pas d’autre photo trouvée' : 'Pas de réseau');
+  // Sélecteur : affiche les photos déjà trouvées (gratuit) ; « Plus de photos » = 1 recherche Pexels
+  async function openPicker(e, kind) {
+    const k = pkey(e, kind), q = queryOf(e);
+    if (!photoCache[k]?.alts?.length) {
+      if (!navigator.onLine) return toast('Pas de réseau');
+      toast('Recherche des photos…');
+      await lookup(k, kind, q);
     }
-    render();
+    if (!photoCache[k]?.alts?.length) return toast('Aucune photo trouvée');
+    const d = document.createElement('div'); d.className = 'sheet-bg';
+    const draw = () => {
+      const c = photoCache[k];
+      d.innerHTML = `<div class="sheet picker"><div class="grab"></div><p class="label">Choisis une photo</p>
+        <div class="pgrid">${c.alts.map(u => `<button data-pick="${esc(u)}" class="${u === c.u ? 'on' : ''}"><img src="${esc(thumbOf(u))}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>
+        ${pexKey ? `<button class="ghost" data-more>${ic('plus')}Plus de photos <small>· 1 recherche Pexels</small></button>` : ''}
+        ${c.pg ? '<div class="ver">Photos fournies par Pexels</div>' : ''}</div>`;
+    };
+    draw(); document.body.appendChild(d);
+    d.addEventListener('click', async ev => {
+      const p = ev.target.closest('[data-pick]');
+      if (p) {
+        photoCache[k] = { ...photoCache[k], u: p.dataset.pick, t: Date.now() }; savePhotos();
+        d.remove(); const y = window.scrollY; render(); window.scrollTo(0, y); return;
+      }
+      if (!ev.target.closest('[data-more]')) return;
+      const c = photoCache[k], page = (c.pg || 0) + 1, y = d.querySelector('.sheet').scrollTop;
+      try {
+        const list = await pexSearch(q, page, kind);
+        if (!list.length) return toast('Pas d’autres photos');
+        photoCache[k] = { ...c, alts: [...new Set([...c.alts, ...list])], pg: page }; savePhotos();
+        draw(); d.querySelector('.sheet').scrollTop = y + 200;
+      } catch (err) { toast(pexErr(err)); }
+    });
   }
 
   // ---------- Données ----------
@@ -628,7 +707,7 @@
     const src = url(r.source);
     V.innerHTML = `<div class="topbar"><button data-back>${ic('back')}${esc(backLabel())}</button></div>
       <div class="panel">${pic(r, 'r', 'photo')}
-        ${!isUrl(r.photo) ? `<button class="ghost" data-rphoto="${esc(r.id)}">${ic('undo')}Chercher une autre photo</button>` : ''}<h1>${esc(r.nom)}</h1>
+        ${!isUrl(r.photo) ? `<button class="ghost" data-rphoto="${esc(r.id)}">${ic('undo')}Choisir une autre photo</button>` : ''}<h1>${esc(r.nom)}</h1>
         <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)} personne${Number(r.portions) > 1 ? 's' : ''}</span>` : ''}${n ? `<span>${ic('cart')}${g}/${n} achetés</span>` : ''}</div>
         ${r.faite ? `<div class="badges"><span class="badge ok">Recette faite ✓</span></div>` : ''}
         ${src ? `<a class="ghost" href="${src}" target="_blank" rel="noopener">${ic('link')}Voir la recette complète</a>` : ''}</div>
@@ -649,7 +728,7 @@
     const auto = !isUrl(a.photo);
     V.innerHTML = `<div class="topbar"><button data-back>${ic('back')}${esc(backLabel())}</button></div>
       <div class="panel">${pic(a, 'a', 'photo')}
-        ${auto ? `<button class="ghost" data-act2="photo">${ic('undo')}Chercher une autre photo</button>` : ''}
+        ${auto ? `<button class="ghost" data-act2="photo">${ic('undo')}Choisir une autre photo</button>` : ''}
         <h1>${esc(a.nom)}</h1>
         <div class="badges">${a.quantite ? `<span class="badge">${esc(a.quantite)}</span>` : ''}<span class="badge">${esc(a.rayon)}</span>
           ${a.fait ? '<span class="badge ok">Dans le panier</span>' : ''}</div></div>
@@ -719,11 +798,11 @@
     if (t.matches('.sheet-bg')) { if (e.target === t) t.remove(); return; }
     if (t.dataset.nav) { stack.length = 0; return go(t.dataset.nav); }
     if (t.dataset.art) return push('article', { article: t.dataset.art });
-    if (t.dataset.rphoto) { const r = l.recettes.find(x => x.id === t.dataset.rphoto); return r && nextPhoto(r, 'r'); }
+    if (t.dataset.rphoto) { const r = l.recettes.find(x => x.id === t.dataset.rphoto); return r && openPicker(r, 'r'); }
     if (t.dataset.act2) {
       const a = l.articles.find(x => x.id === ui.article); if (!a) return;
       if (t.dataset.act2 === 'toggle') { setFait(a, !a.fait); save(); if (navigator.vibrate) navigator.vibrate(8); return back(); }
-      if (t.dataset.act2 === 'photo') return nextPhoto(a);
+      if (t.dataset.act2 === 'photo') return openPicker(a, 'a');
       if (t.dataset.act2 === 'delete') {
         if (!confirm(`Supprimer « ${a.nom} » de la liste ?`)) return;
         l.articles = l.articles.filter(x => x.id !== a.id);
@@ -771,8 +850,9 @@
         p.forEach(a => a.archive = true);
         toast(p.length ? `${p.length} article${p.length > 1 ? 's' : ''} → Déjà pris` : 'Aucun article coché à archiver');
       }
-      if (t.dataset.act === 'photos') { photoCache = {}; savePhotos(); toast('Recherche des photos…'); }
+      if (t.dataset.act === 'photos') { photoCache = { _v: 2 }; savePhotos(); toast('Recherche des photos…'); }
       if (t.dataset.act === 'update') return forceUpdate();
+      if (t.dataset.act === 'pexels') return openPexels();
       save(); return go('liste');
     }
     if (t.id === 'paste') {
@@ -801,12 +881,13 @@
 
   function openMenu() {
     const d = document.createElement('div'); d.className = 'sheet-bg';
-    d.innerHTML = `<div class="sheet"><div class="grab"></div>
+    d.innerHTML = `<div class="sheet"><div class="grab"></div>${quotaHtml()}
       <button data-act="archive">${ic('archive')}Archiver les articles cochés</button>
       <button data-act="uncheck">${ic('undo')}Tout décocher</button>
       <button data-act="clean">${ic('check')}Retirer les articles cochés</button>
       <button data-act="dup">${ic('plus')}Relancer cette liste (nouvelle copie)</button>
       <button data-act="photos">${ic('undo')}Rechercher à nouveau les photos</button>
+      <button data-act="pexels">${ic('key')}Clé API Pexels${pexKey ? ' · configurée' : ''}</button>
       <button data-act="update">${ic('refresh')}Forcer la mise à jour de l’appli</button>
       <div class="ver" id="ver"></div></div>`;
     document.body.appendChild(d);
@@ -815,6 +896,44 @@
       const v = Math.max(...k.map(x => +(/^courses-v(\d+)$/.exec(x) || [])[1] || 0));
       if (v > 0 && $('#ver')) $('#ver').textContent = 'Version ' + v;
     }).catch(() => {});
+  }
+
+  function quotaHtml() {
+    if (!pexKey) return '';
+    const used = pexUsed(), n = Math.min(used.length, PEX_HOUR), info = lsGet(PEX_INFO, null);
+    const hm = t => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const sub = n >= PEX_HOUR ? `Quota plein · de nouveau dispo vers ${hm(Math.min(...used) + 3600e3)}`
+      : `${PEX_HOUR - n} recherche${PEX_HOUR - n > 1 ? 's' : ''} restante${PEX_HOUR - n > 1 ? 's' : ''} cette heure`;
+    const month = info?.lim ? ` · ${info.rem.toLocaleString('fr-FR')} / ${info.lim.toLocaleString('fr-FR')} ce mois` : '';
+    return `<div class="quota"><div class="goal-top"><b>Quota Pexels</b><span>${n} / ${PEX_HOUR} cette heure</span></div>
+      <div class="bar ${n / PEX_HOUR > .8 ? 'hot' : ''}"><i style="width:${n / PEX_HOUR * 100}%"></i></div><div class="qsub">${sub}${month}</div></div>`;
+  }
+
+  function openPexels() {
+    const d = document.createElement('div'); d.className = 'sheet-bg';
+    d.innerHTML = `<div class="sheet"><div class="grab"></div><p class="label">Photos Pexels</p>
+      <p class="hint" style="margin:0 0 12px">Crée une clé gratuite sur <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a> puis colle-la ici. Elle reste uniquement sur ce téléphone.</p>
+      <div class="fields"><input id="pexIn" value="${esc(pexKey)}" placeholder="Clé API Pexels" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <button class="ghost lime" id="pexSave">${ic('check')}Enregistrer</button>
+      ${pexKey ? `<button class="ghost" id="pexDel">${ic('trash')}Supprimer la clé</button>` : ''}
+      <div class="err" id="pexErr"></div></div>`;
+    document.body.appendChild(d);
+    d.addEventListener('click', async ev => {
+      if (ev.target.closest('#pexDel')) { pexKey = ''; lsSet(PEX_KEY, ''); d.remove(); toast('Clé supprimée'); return; }
+      if (!ev.target.closest('#pexSave')) return;
+      const v = $('#pexIn').value.trim(); if (!v) return;
+      $('#pexErr').textContent = 'Vérification de la clé…';
+      try { await pexSearch('food', 1, 'r', v); }   // coûte 1 recherche
+      catch (err) { $('#pexErr').textContent = pexErr(err); return; }
+      pexKey = v; lsSet(PEX_KEY, v); d.remove();
+      const l = cur();
+      const keys = l ? [...new Set([...l.articles.filter(a => !isUrl(a.photo)).map(a => pkey(a, 'a')), ...l.recettes.filter(r => !isUrl(r.photo)).map(r => pkey(r, 'r'))])] : [];
+      const left = PEX_HOUR - pexUsed().length;
+      if (keys.length && confirm(`Clé enregistrée ✓\n\nRemplacer les photos de la liste en cours par celles de Pexels ?\n${keys.length} recherches (il en reste ${left} cette heure).`)) {
+        keys.forEach(k => delete photoCache[k]); savePhotos();
+      } else toast('Clé enregistrée ✓');
+      render();
+    });
   }
 
   // Mise à jour forcée : vide les caches et le service worker, puis recharge depuis le réseau.
