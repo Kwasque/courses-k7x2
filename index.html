@@ -62,9 +62,18 @@
     border: 1px solid transparent; white-space: nowrap; }
   .chip.on { color: var(--text); border-color: var(--line); background: var(--card); }
 
-  h2.sec { font-size: 19px; font-weight: 600; margin: 4px 0 12px; letter-spacing: -.01em;
+  .sec { font-size: 19px; font-weight: 600; margin: 4px 0 12px; letter-spacing: -.01em;
     display: flex; align-items: baseline; justify-content: space-between; }
-  h2.sec small { font-size: 13px; color: var(--muted); font-weight: 400; }
+  .sec small { font-size: 13px; color: var(--muted); font-weight: 400; }
+
+  /* Articles archivés */
+  button.sec.arch { width: 100%; text-align: left; margin-top: 18px; align-items: center; }
+  .arch small { display: inline-flex; align-items: center; gap: 4px; }
+  .arch svg { width: 16px; height: 16px; transform: rotate(-90deg); transition: transform .2s; }
+  .arch.open svg { transform: rotate(90deg); }
+  .allgood { text-align: center; color: var(--muted); padding: 22px 16px; background: var(--card);
+    border: 1px solid var(--line); border-radius: var(--r); margin-bottom: 18px; }
+  .allgood b { display: block; color: var(--lime); font-size: 16px; margin-bottom: 2px; }
 
   /* Progression */
   .goal { background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
@@ -126,6 +135,9 @@
   .addrow input::placeholder { color: var(--dim); }
   .addrow button { width: 48px; height: 48px; border-radius: 14px; background: var(--card2);
     border: 1px solid var(--line); display: grid; place-items: center; }
+  .addrow.top { margin: 0 0 14px; }
+  .addrow.top button { background: var(--lime); color: var(--ink); border-color: var(--lime); }
+  .addrow input:focus { border-color: var(--lime); }
   .addrow svg { width: 20px; height: 20px; }
 
   /* Grille recettes */
@@ -135,6 +147,13 @@
   .rc b { display: block; font-size: 14.5px; font-weight: 600; margin-top: 8px; line-height: 1.25; }
   .rc .meta { color: var(--muted); }
   .rc .bar { height: 5px; margin-top: 8px; }
+  .rcw { position: relative; display: block; }
+  .made-badge { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px;
+    background: var(--lime); color: var(--ink); font-size: 12px; font-weight: 600; padding: 3px 8px 3px 6px; border-radius: 8px; }
+  .made-badge svg { width: 13px; height: 13px; }
+  .rc.made .pic { opacity: .45; filter: grayscale(.6); }
+  .rc.made b { color: var(--muted); }
+  a.ghost { text-decoration: none; }
 
   /* Détail recette & import */
   .topbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; min-height: 42px; }
@@ -422,7 +441,10 @@
   const save = () => { try { localStorage.setItem(STORE, JSON.stringify(db)); } catch { toast('Stockage plein'); } };
   const cur = () => db.lists.find(l => l.id === db.current) || null;
 
-  let ui = { view: db.lists.length ? 'liste' : 'import', recipe: null, from: 'recettes', q: '', rayon: 'Tout' };
+  let ui = { view: db.lists.length ? 'liste' : 'import', recipe: null, from: 'recettes', q: '', rayon: 'Tout', archOpen: false };
+
+  // Décocher un article le sort aussi des archives
+  function setFait(a, v) { a.fait = v; if (!v) a.archive = false; }
 
   function parseImport(text) {
     let t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
@@ -442,7 +464,7 @@
       articles.push({ id, nom: String(x.nom || x.name).trim(), quantite: String(x.quantite ?? x.qty ?? '').trim(),
         rayon: String(x.rayon || 'Autre').trim(), photo: x.photo || x.image || '',
         emoji: x.emoji ? String(x.emoji) : '', photo_recherche: x.photo_recherche ? String(x.photo_recherche) : '',
-        recettes: Array.isArray(x.recettes) ? x.recettes.map(String) : [], fait: false });
+        recettes: Array.isArray(x.recettes) ? x.recettes.map(String) : [], fait: false, archive: false });
     }
     const recettes = rawR.filter(r => r && r.nom).map(r => ({
       id: String(r.id || slug(r.nom)), nom: String(r.nom), photo: r.photo || r.image || '',
@@ -451,7 +473,7 @@
       ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map(g => typeof g === 'string'
         ? { article: null, nom: g, quantite: '' }
         : { article: g.article ? String(g.article) : null, nom: g.nom || '', quantite: String(g.quantite ?? '') }),
-      etapes: (Array.isArray(r.etapes) ? r.etapes : []).map(String)
+      etapes: (Array.isArray(r.etapes) ? r.etapes : []).map(String), faite: false
     }));
     // Lien article → recettes, déduit des ingrédients si absent
     for (const r of recettes) for (const g of r.ingredients) {
@@ -521,24 +543,19 @@
     const pct = arts.length ? Math.round(done / arts.length * 100) : 0;
     const rayons = [...new Set(arts.map(a => a.rayon))].sort(byRayon);
     if (ui.rayon !== 'Tout' && !rayons.includes(ui.rayon)) ui.rayon = 'Tout';
-    const q = ui.q.trim().toLowerCase();
-    const shown = arts.filter(a => (ui.rayon === 'Tout' || a.rayon === ui.rayon) && (!q || a.nom.toLowerCase().includes(q)));
+    const shown = arts.filter(a => ui.rayon === 'Tout' || a.rayon === ui.rayon);
+    const active = shown.filter(a => !a.archive);
+    const archived = shown.filter(a => a.archive).sort((a, b) => byRayon(a.rayon, b.rayon) || a.nom.localeCompare(b.nom, 'fr'));
     const groups = {};
-    shown.forEach(a => (groups[a.rayon] ||= []).push(a));
+    active.forEach(a => (groups[a.rayon] ||= []).push(a));
 
     let h = `<div class="hello"><div class="avatar">${ic('cart')}</div>
       <div class="grow"><h1>${esc(l.titre)}</h1>
       <div class="stats"><span>${ic('bag')}${arts.length} articles</span><span>${ic('check')}${pct}% pris</span></div></div>
       <button class="round" data-menu aria-label="Options">${ic('more')}</button></div>
-      <label class="search">${ic('search')}<input id="q" placeholder="Rechercher un article" value="${esc(ui.q)}" autocomplete="off"></label>
+      <form class="addrow top" id="add"><input id="addIn" placeholder="Ajouter un article…" enterkeyhint="done" autocomplete="off"><button aria-label="Ajouter">${ic('plus')}</button></form>
       <div class="chips">${['Tout', ...rayons].map(r => `<button class="chip ${ui.rayon === r ? 'on' : ''}" data-rayon="${esc(r)}">${esc(r)}</button>`).join('')}</div>`;
 
-    if (l.recettes.length && !q && ui.rayon === 'Tout') {
-      h += `<h2 class="sec">Au menu <small>${l.recettes.length} recette${l.recettes.length > 1 ? 's' : ''}</small></h2><div class="carousel">` +
-        l.recettes.map(r => { const [g, n] = recipeProgress(l, r);
-          return `<button class="hero" data-recipe="${esc(r.id)}">${pic(r, 'r', '')}<div class="ov"><b>${esc(r.nom)}</b>
-          <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)} pers.</span>` : ''}${n ? `<span>${ic('cart')}${g}/${n} ingrédients</span>` : ''}</div></div></button>`; }).join('') + '</div>';
-    }
     h += `<div class="goal"><div class="goal-top"><b>Dans le panier</b><span>${done} / ${arts.length}</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>`;
     h += `<h2 class="sec">À acheter</h2>`;
     for (const r of Object.keys(groups).sort(byRayon)) {
@@ -547,12 +564,13 @@
       h += `<div class="group"><div class="ghead ${left ? '' : 'ok'}">${esc(r)}<em>${left ? left + ' restant' + (left > 1 ? 's' : '') : 'terminé ✓'}</em></div>
         <div class="items">${items.map(a => itemRow(l, a)).join('')}</div></div>`;
     }
-    if (!shown.length) h += `<p class="empty" style="padding:30px">Aucun article ne correspond.</p>`;
-    h += `<form class="addrow" id="add"><input id="addIn" placeholder="Ajouter un article oublié…" enterkeyhint="done"><button aria-label="Ajouter">${ic('plus')}</button></form>`;
+    if (!shown.length) h += `<p class="empty" style="padding:30px">Aucun article pour l’instant.</p>`;
+    else if (!active.length) h += `<div class="allgood"><b>Tout est dans le panier</b>Plus rien à acheter${ui.rayon !== 'Tout' ? ' dans ce rayon' : ''}.</div>`;
+    if (archived.length) {
+      h += `<button class="sec arch ${ui.archOpen ? 'open' : ''}" data-arch>Déjà pris<small>${archived.length} article${archived.length > 1 ? 's' : ''}${ic('back')}</small></button>`;
+      if (ui.archOpen) h += `<div class="items">${archived.map(a => itemRow(l, a)).join('')}</div>`;
+    }
     V.innerHTML = h;
-
-    const qi = $('#q');
-    qi.addEventListener('input', () => { ui.q = qi.value; const p = qi.selectionStart; render(); const n = $('#q'); n.focus(); n.setSelectionRange(p, p); });
   }
   function byRayon(a, b) {
     const ix = r => { const i = RAYONS.findIndex(x => x.toLowerCase() === r.toLowerCase()); return i < 0 ? RAYONS.length - 1.5 : i; };
@@ -561,10 +579,13 @@
 
   function viewRecipes(l) {
     if (!l.recettes.length) { V.innerHTML = `<div class="hello"><div class="grow"><h1>Recettes</h1></div></div>` + emptyState('Pas de recettes', 'Cette liste ne contient que des articles.'); return; }
+    const made = l.recettes.filter(r => r.faite).length;
+    // Les recettes faites passent en fin de grille
+    const list = l.recettes.slice().sort((a, b) => !!a.faite - !!b.faite);
     V.innerHTML = `<div class="hello"><div class="avatar">${ic('chef')}</div><div class="grow"><h1>Recettes</h1>
-      <div class="stats"><span>${esc(l.titre)}</span></div></div></div>
-      <div class="grid">${l.recettes.map(r => { const [g, n] = recipeProgress(l, r);
-        return `<button class="rc" data-recipe="${esc(r.id)}">${pic(r, 'r', '')}<b>${esc(r.nom)}</b>
+      <div class="stats"><span>${esc(l.titre)}</span><span>${ic('check')}${made}/${l.recettes.length} faite${made > 1 ? 's' : ''}</span></div></div></div>
+      <div class="grid">${list.map(r => { const [g, n] = recipeProgress(l, r);
+        return `<button class="rc ${r.faite ? 'made' : ''}" data-recipe="${esc(r.id)}"><span class="rcw">${pic(r, 'r', '')}${r.faite ? `<span class="made-badge">${ic('check')}Faite</span>` : ''}</span><b>${esc(r.nom)}</b>
         <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)}</span>` : ''}</div>
         ${n ? `<div class="bar"><i style="width:${g / n * 100}%"></i></div>` : ''}</button>`; }).join('')}</div>`;
   }
@@ -584,10 +605,13 @@
     const src = url(r.source);
     V.innerHTML = `<div class="topbar"><button data-back>${ic('back')}${esc(backLabel())}</button></div>
       <div class="panel">${pic(r, 'r', 'photo')}<h1>${esc(r.nom)}</h1>
-        <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)} personne${Number(r.portions) > 1 ? 's' : ''}</span>` : ''}${n ? `<span>${ic('cart')}${g}/${n} achetés</span>` : ''}</div></div>
+        <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)} personne${Number(r.portions) > 1 ? 's' : ''}</span>` : ''}${n ? `<span>${ic('cart')}${g}/${n} achetés</span>` : ''}</div>
+        ${r.faite ? `<div class="badges"><span class="badge ok">Recette faite ✓</span></div>` : ''}
+        ${src ? `<a class="ghost" href="${src}" target="_blank" rel="noopener">${ic('link')}Voir la recette complète</a>` : ''}</div>
       ${r.ingredients.length ? `<div class="panel"><p class="label">Ingrédients</p><p class="hint">Coche un ingrédient pour le cocher dans la liste, touche-le pour voir le détail.</p>${ings}</div>` : ''}
       ${r.etapes.length ? `<div class="panel"><p class="label">Préparation</p><ol class="steps">${r.etapes.map(s => `<li><span>${esc(s)}</span></li>`).join('')}</ol></div>` : ''}
-      ${src ? `<div style="height:60px"></div><a class="cta" href="${src}" target="_blank" rel="noopener">${ic('link')}Voir la recette complète</a>` : ''}`;
+      <div style="height:60px"></div>
+      <button class="cta ${r.faite ? 'off' : ''}" data-made="${esc(r.id)}">${ic(r.faite ? 'undo' : 'chef')}${r.faite ? 'Pas encore faite' : 'Marquer comme faite'}</button>`;
   }
 
   function viewArticle(l) {
@@ -665,7 +689,7 @@
 
   document.addEventListener('click', async e => {
     if (e.target.matches?.('img.photo')) { return openPhoto(e.target.currentSrc || e.target.src); }
-    const t = e.target.closest('[data-nav],[data-toggle],[data-art],[data-act2],[data-recipe],[data-back],[data-rayon],[data-open],[data-del],[data-menu],#paste,#doImport,[data-act],.sheet-bg');
+    const t = e.target.closest('[data-nav],[data-toggle],[data-art],[data-act2],[data-recipe],[data-made],[data-arch],[data-back],[data-rayon],[data-open],[data-del],[data-menu],#paste,#doImport,[data-act],.sheet-bg');
     if (!t) return;
     const l = cur();
     if (t.matches('.sheet-bg')) { if (e.target === t) t.remove(); return; }
@@ -673,7 +697,7 @@
     if (t.dataset.art) return push('article', { article: t.dataset.art });
     if (t.dataset.act2) {
       const a = l.articles.find(x => x.id === ui.article); if (!a) return;
-      if (t.dataset.act2 === 'toggle') { a.fait = !a.fait; save(); if (navigator.vibrate) navigator.vibrate(8); return back(); }
+      if (t.dataset.act2 === 'toggle') { setFait(a, !a.fait); save(); if (navigator.vibrate) navigator.vibrate(8); return back(); }
       if (t.dataset.act2 === 'photo') return nextPhoto(a);
       if (t.dataset.act2 === 'delete') {
         if (!confirm(`Supprimer « ${a.nom} » de la liste ?`)) return;
@@ -684,9 +708,16 @@
     }
     if (t.dataset.toggle) {
       const a = l.articles.find(x => x.id === t.dataset.toggle); if (!a) return;
-      a.fait = !a.fait; save(); if (navigator.vibrate) navigator.vibrate(8);
+      setFait(a, !a.fait); save(); if (navigator.vibrate) navigator.vibrate(8);
       const y = window.scrollY; render(); window.scrollTo(0, y); return;
     }
+    if (t.dataset.made) {
+      const r = l.recettes.find(x => x.id === t.dataset.made); if (!r) return;
+      r.faite = !r.faite; save(); if (navigator.vibrate) navigator.vibrate(8);
+      if (r.faite) { toast('Recette faite ✓'); return back(); }
+      const y = window.scrollY; render(); window.scrollTo(0, y); return;
+    }
+    if ('arch' in t.dataset) { ui.archOpen = !ui.archOpen; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
     if (t.dataset.recipe) return push('recette', { recipe: t.dataset.recipe });
     if ('back' in t.dataset) return ui.view === 'import' ? go(cur() ? 'liste' : 'historique') : back();
     if (t.dataset.rayon) { ui.rayon = t.dataset.rayon; return render(); }
@@ -701,11 +732,12 @@
     if ('menu' in t.dataset) return openMenu();
     if (t.dataset.act) {
       document.querySelector('.sheet-bg')?.remove();
-      if (t.dataset.act === 'uncheck') l.articles.forEach(a => a.fait = false);
+      if (t.dataset.act === 'uncheck') l.articles.forEach(a => setFait(a, false));
       if (t.dataset.act === 'dup') {
         const copy = JSON.parse(JSON.stringify(l));
         Object.assign(copy, { id: uid(), importedAt: Date.now(), date: new Date().toISOString().slice(0, 10) });
-        copy.articles.forEach(a => a.fait = false);
+        copy.articles.forEach(a => setFait(a, false));
+        copy.recettes.forEach(r => r.faite = false);
         db.lists.push(copy); db.current = copy.id; toast('Liste relancée');
       }
       if (t.dataset.act === 'clean') l.articles = l.articles.filter(a => !a.fait);
@@ -732,7 +764,7 @@
     if (e.target.id !== 'add') return;
     e.preventDefault();
     const v = $('#addIn').value.trim(); if (!v) return;
-    cur().articles.push({ id: uid(), nom: v, quantite: '', rayon: 'Autre', photo: '', recettes: [], fait: false });
+    cur().articles.push({ id: uid(), nom: v, quantite: '', rayon: 'Autre', photo: '', recettes: [], fait: false, archive: false });
     save(); render(); $('#addIn')?.focus();
   });
 
@@ -751,6 +783,26 @@
     const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
     document.body.appendChild(t); tt = setTimeout(() => t.remove(), 2200);
   }
+
+  // ---------- Archivage auto ----------
+  // Les articles cochés passent dans « Dans le panier » après 1 min sans toucher l'appli
+  // (ni clic, ni défilement, ni saisie). Vérifié toutes les 5 s, donc aussi au retour dans l'appli.
+  const IDLE_MS = 60 * 1000;
+  let lastAct = Date.now();
+  const touch = () => { lastAct = Date.now(); };
+  ['pointerdown', 'touchstart', 'keydown', 'input', 'wheel', 'scroll'].forEach(ev =>
+    document.addEventListener(ev, touch, { capture: true, passive: true }));
+  function archiveIfIdle() {
+    if (Date.now() - lastAct < IDLE_MS) return;
+    const l = cur(); if (!l) return;
+    const pending = l.articles.filter(a => a.fait && !a.archive);
+    if (!pending.length) return;
+    pending.forEach(a => a.archive = true); save();
+    if (ui.view === 'liste') { const y = window.scrollY; render(); window.scrollTo(0, Math.min(y, document.body.scrollHeight)); }
+    toast(`${pending.length} article${pending.length > 1 ? 's' : ''} → Déjà pris`);
+  }
+  setInterval(archiveIfIdle, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) archiveIfIdle(); });
 
   render();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

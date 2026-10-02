@@ -30,7 +30,11 @@
   Le premier affichage d'une nouvelle liste peut prendre 1 à 2 minutes (Open Food Facts limite le nombre de recherches),
   ensuite l'adresse de chaque photo est mémorisée. En attendant, ou si rien n'est trouvé, un emoji s'affiche.
   Sans réseau, les emojis restent et la liste est utilisable. Menu « ⋯ » → *Rechercher à nouveau les photos* pour tout relancer.
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v8` en `courses-v9`
+- **Articles cochés** : une minute après le dernier article coché, si tu ne touches plus l'appli
+  (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
+  Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
+- **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v10` en `courses-v11`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version.
 
 ## Format du JSON
