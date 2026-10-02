@@ -270,6 +270,12 @@
   .sheet .fields input { width: 100%; }
   .sheet .hint a { color: var(--lime); }
   .picker { max-height: 82vh; overflow-y: auto; }
+  .picker.busy .pgrid, .picker.busy .psearch { opacity: .45; pointer-events: none; }
+  .psearch { position: sticky; bottom: -16px; margin: 12px -16px -4px; padding: 10px 16px 6px; background: var(--card); }
+  .psearch input { font-size: 16px; }
+  .sheet .psearch button, .sheet .psearch button:first-of-type { width: 48px; flex: none; padding: 0; justify-content: center;
+    border: 1px solid var(--lime); background: var(--lime); color: var(--ink); }
+  .sheet .psearch svg { color: var(--ink); }
   .pgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .sheet .pgrid button { padding: 0; border: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: var(--card2);
     outline: 3px solid transparent; outline-offset: -3px; }
@@ -509,37 +515,70 @@
   window.addEventListener('online', () => resolvePhotos());
 
   // Sélecteur : affiche les photos déjà trouvées (gratuit) ; « Plus de photos » = 1 recherche Unsplash
-  async function openPicker(e, kind) {
-    const k = pkey(e, kind), q = queryOf(e);
-    if (!photoCache[k]?.alts?.length) {
-      if (!navigator.onLine) return toast('Pas de réseau');
-      toast('Recherche des photos…');
-      await lookup(k, kind, q);
+  // Recherche manuelle depuis le sélecteur : Unsplash si clé (1 recherche), sinon les sources gratuites
+  async function searchAlts(q, kind) {
+    if (uKey) {
+      try { return { list: await uSearch(q, 1, kind), pg: 1 }; }
+      catch (err) { if (err.message !== 'quota') throw err; toast('Quota Unsplash atteint · autres sources'); }
     }
-    if (!photoCache[k]?.alts?.length) return toast('Aucune photo trouvée');
+    for (const f of kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF]) {
+      try { const list = await f(q); if (list.length) return { list, pg: 0 }; } catch {}
+    }
+    return { list: [], pg: 0 };
+  }
+
+  async function openPicker(e, kind) {
+    const k = pkey(e, kind);
+    const curQ = () => photoCache[k]?.q || queryOf(e);   // terme affiné par l'utilisateur, sinon celui de la liste
+    if (!photoCache[k]?.alts?.length && navigator.onLine) {
+      toast('Recherche des photos…');
+      await lookup(k, kind, curQ());
+    }
     const d = document.createElement('div'); d.className = 'sheet-bg';
     const draw = () => {
-      const c = photoCache[k];
+      const c = photoCache[k] || {}, alts = c.alts || [];
       d.innerHTML = `<div class="sheet picker"><div class="grab"></div><p class="label">Choisis une photo</p>
-        <div class="pgrid">${c.alts.map(u => `<button data-pick="${esc(u)}" class="${u === c.u ? 'on' : ''}"><img src="${esc(thumbOf(u))}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>
-        ${uKey ? `<button class="ghost" data-more>${ic('plus')}Plus de photos <small>· 1 recherche Unsplash</small></button>` : ''}
-        ${c.pg ? '<div class="ver">Photos fournies par Unsplash</div>' : ''}</div>`;
+        ${alts.length ? `<div class="pgrid">${alts.map(u => `<button data-pick="${esc(u)}" class="${u === c.u ? 'on' : ''}"><img src="${esc(thumbOf(u))}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>`
+          : '<p class="hint" style="margin:0">Aucune photo trouvée. Essaie un autre terme ci-dessous.</p>'}
+        ${uKey && alts.length ? `<button class="ghost" data-more>${ic('plus')}Plus de photos <small>· 1 recherche Unsplash</small></button>` : ''}
+        ${c.pg ? '<div class="ver">Photos fournies par Unsplash</div>' : ''}
+        <form class="addrow psearch" data-psearch><input name="pq" value="${esc(curQ())}" placeholder="Terme de recherche" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button aria-label="Rechercher">${ic('search')}</button></form>
+        ${uKey ? '<div class="ver" style="padding-top:2px">Nouvelle recherche · 1 recherche Unsplash</div>' : ''}</div>`;
     };
     draw(); document.body.appendChild(d);
+    const busy = on => d.querySelector('.sheet').classList.toggle('busy', on);
+
+    d.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const nq = ev.target.pq.value.trim(); if (!nq) return;
+      if (!navigator.onLine) return toast('Pas de réseau');
+      ev.target.pq.blur(); busy(true);
+      try {
+        const { list, pg } = await searchAlts(nq, kind);
+        if (!list.length) { busy(false); return toast('Rien trouvé pour « ' + nq + ' »'); }
+        const c = photoCache[k] || {};
+        // On garde la photo actuelle en tête pour pouvoir la conserver
+        photoCache[k] = { ...c, none: false, q: nq, pg, alts: [...new Set([...(c.u ? [c.u] : []), ...list])].slice(0, 60) };
+        savePhotos(); draw(); d.querySelector('.sheet').scrollTop = 0;
+      } catch (err) { busy(false); toast(uErr(err)); }
+    });
+
     d.addEventListener('click', async ev => {
       const p = ev.target.closest('[data-pick]');
       if (p) {
-        photoCache[k] = { ...photoCache[k], u: p.dataset.pick, t: Date.now() }; savePhotos();
+        photoCache[k] = { ...photoCache[k], none: false, u: p.dataset.pick, t: Date.now() }; savePhotos();
         d.remove(); const y = window.scrollY; render(); window.scrollTo(0, y); return;
       }
       if (!ev.target.closest('[data-more]')) return;
       const c = photoCache[k], page = (c.pg || 0) + 1, y = d.querySelector('.sheet').scrollTop;
+      busy(true);
       try {
-        const list = await uSearch(q, page, kind);
-        if (!list.length) return toast('Pas d’autres photos');
+        const list = await uSearch(curQ(), page, kind);
+        if (!list.length) { busy(false); return toast('Pas d’autres photos'); }
         photoCache[k] = { ...c, alts: [...new Set([...c.alts, ...list])], pg: page }; savePhotos();
         draw(); d.querySelector('.sheet').scrollTop = y + 200;
-      } catch (err) { toast(uErr(err)); }
+      } catch (err) { busy(false); toast(uErr(err)); }
     });
   }
 

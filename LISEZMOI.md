@@ -30,6 +30,8 @@
   (photos Flickr…), et Wikimedia seulement en dernier recours.
   Une photo ne plaît pas ? Bouton « Choisir une autre photo » dans la recette ou l'article :
   il affiche toutes les photos déjà trouvées (sans nouvelle recherche).
+  En bas, un champ contient le terme cherché : modifie-le (ex. `caesar salad` au lieu de `chicken caesar salad`)
+  pour relancer une recherche plus précise. Le terme affiné est retenu pour « Plus de photos ».
   Le premier affichage d'une nouvelle liste peut prendre 1 à 2 minutes (Open Food Facts limite le nombre de recherches),
   ensuite l'adresse de chaque photo est mémorisée. En attendant, ou si rien n'est trouvé, un emoji s'affiche.
   Sans réseau, les emojis restent et la liste est utilisable. Menu « ⋯ » → *Rechercher à nouveau les photos* pour tout relancer.
@@ -37,7 +39,7 @@
   (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
   Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
 - **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v16` en `courses-v17`
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v17` en `courses-v18`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version,
   ou menu « ⋯ » → *Forcer la mise à jour de l'appli* (les listes sont conservées).
   La version installée est affichée en bas de ce menu.
