@@ -325,11 +325,14 @@
   const fmtDate = d => { try { return new Date(d + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' }); } catch { return d; } };
 
   // ---------- Photos automatiques ----------
-  // Articles → Open Food Facts uniquement. Recettes → Wikimedia Commons, puis Wikipédia.
+  // Articles → Open Food Facts uniquement.
+  // Recettes → TheMealDB (photos de plats), puis Openverse (photos Flickr…), Wikimedia en dernier recours.
   const PHOTOS = 'courses.photos.v1';
   const RETRY_MS = 3 * 24 * 3600 * 1000; // on retente les « pas trouvé » après 3 jours
   let photoCache = {};
   try { photoCache = JSON.parse(localStorage.getItem(PHOTOS)) || {}; } catch {}
+  // v2 : nouvelles sources pour les recettes → on oublie les anciennes photos Wikimedia
+  if (photoCache._v !== 2) { for (const k of Object.keys(photoCache)) if (k.startsWith('r:')) delete photoCache[k]; photoCache._v = 2; }
   const savePhotos = () => { try { localStorage.setItem(PHOTOS, JSON.stringify(photoCache)); } catch {} };
 
   const emojiOf = (e, kind) => e.emoji || (kind === 'r' ? '🍽️' : EMO_RAYON[String(e.rayon || '').toLowerCase()] || '🛒');
@@ -365,6 +368,22 @@
   };
   const enc = encodeURIComponent;
 
+  // Mots significatifs d'une recherche (sans accents ni petits mots)
+  const words = q => slug(q).split('-').filter(w => w.length > 2 && !['the', 'and', 'with', 'aux', 'des', 'les', 'une', 'pour'].includes(w));
+  async function fromMealDB(q) {
+    const d = await getJSON(`https://www.themealdb.com/api/json/v1/1/search.php?s=${enc(q)}`);
+    const want = words(q);
+    // Le plat doit contenir tous les mots cherchés (« chickpea curry » ne doit pas renvoyer un curry thaï aux crevettes)
+    return (d?.meals || []).filter(m => want.every(w => slug(m.strMeal).includes(w))).map(m => m.strMealThumb).filter(Boolean);
+  }
+  async function fromOpenverse(q) {
+    const d = await getJSON(`https://api.openverse.org/v1/images/?q=${enc(q)}&page_size=20&category=photograph&mature=false&excluded_source=wikimedia`);
+    const want = words(q);
+    // Openverse trie mal les recherches à plusieurs mots : on remonte les titres qui contiennent tous les mots, et les titres courts
+    return (d?.results || []).filter(r => r.url && (!r.width || r.width >= 400))
+      .map((r, i) => { const t = slug(r.title || ''); return { u: r.url, i, hit: want.filter(w => t.includes(w)).length, len: t.length }; })
+      .sort((a, b) => b.hit - a.hit || (a.len > 60) - (b.len > 60) || a.i - b.i).map(x => x.u);
+  }
   async function fromCommons(q) {
     const d = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=8&gsrsearch=${enc(q + ' filetype:bitmap')}&prop=imageinfo&iiprop=url|mime&iiurlwidth=640`);
     const pages = Object.values(d?.query?.pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
@@ -390,7 +409,7 @@
   const inflight = {};
   function lookup(k, kind, q, rayon, skip = []) {
     if (inflight[k]) return inflight[k];
-    const chain = kind === 'r' ? [fromCommons, fromWikipedia] : [fromOFF];
+    const chain = kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF];
     return inflight[k] = (async () => {
       let networkOk = false;
       for (const f of chain) {
@@ -427,11 +446,11 @@
   }
   window.addEventListener('online', () => resolvePhotos());
 
-  async function nextPhoto(a) {
-    const k = pkey(a, 'a'), c = photoCache[k] || {};
+  async function nextPhoto(a, kind = 'a') {
+    const k = pkey(a, kind), c = photoCache[k] || {};
     const skip = [...(c.skip || []), ...(c.u ? [c.u] : [])];
     toast('Recherche d’une autre photo…');
-    const u = await lookup(k, 'a', queryOf(a), String(a.rayon || '').toLowerCase(), skip);
+    const u = await lookup(k, kind, queryOf(a), String(a.rayon || '').toLowerCase(), skip);
     if (!u) {
       if (c.u) { photoCache[k] = { ...c, skip: [] }; savePhotos(); }   // on reboucle au début la prochaine fois
       toast(navigator.onLine ? 'Pas d’autre photo trouvée' : 'Pas de réseau');
@@ -608,7 +627,8 @@
     }).join('');
     const src = url(r.source);
     V.innerHTML = `<div class="topbar"><button data-back>${ic('back')}${esc(backLabel())}</button></div>
-      <div class="panel">${pic(r, 'r', 'photo')}<h1>${esc(r.nom)}</h1>
+      <div class="panel">${pic(r, 'r', 'photo')}
+        ${!isUrl(r.photo) ? `<button class="ghost" data-rphoto="${esc(r.id)}">${ic('undo')}Chercher une autre photo</button>` : ''}<h1>${esc(r.nom)}</h1>
         <div class="meta">${r.temps ? `<span>${ic('timer')}${esc(r.temps)}</span>` : ''}${r.portions ? `<span>${ic('users')}${esc(r.portions)} personne${Number(r.portions) > 1 ? 's' : ''}</span>` : ''}${n ? `<span>${ic('cart')}${g}/${n} achetés</span>` : ''}</div>
         ${r.faite ? `<div class="badges"><span class="badge ok">Recette faite ✓</span></div>` : ''}
         ${src ? `<a class="ghost" href="${src}" target="_blank" rel="noopener">${ic('link')}Voir la recette complète</a>` : ''}</div>
@@ -693,12 +713,13 @@
 
   document.addEventListener('click', async e => {
     if (e.target.matches?.('img.photo')) { return openPhoto(e.target.currentSrc || e.target.src); }
-    const t = e.target.closest('[data-nav],[data-toggle],[data-art],[data-act2],[data-recipe],[data-made],[data-arch],[data-back],[data-rayon],[data-open],[data-del],[data-menu],#paste,#doImport,[data-act],.sheet-bg');
+    const t = e.target.closest('[data-nav],[data-toggle],[data-art],[data-act2],[data-recipe],[data-made],[data-rphoto],[data-arch],[data-back],[data-rayon],[data-open],[data-del],[data-menu],#paste,#doImport,[data-act],.sheet-bg');
     if (!t) return;
     const l = cur();
     if (t.matches('.sheet-bg')) { if (e.target === t) t.remove(); return; }
     if (t.dataset.nav) { stack.length = 0; return go(t.dataset.nav); }
     if (t.dataset.art) return push('article', { article: t.dataset.art });
+    if (t.dataset.rphoto) { const r = l.recettes.find(x => x.id === t.dataset.rphoto); return r && nextPhoto(r, 'r'); }
     if (t.dataset.act2) {
       const a = l.articles.find(x => x.id === ui.article); if (!a) return;
       if (t.dataset.act2 === 'toggle') { setFait(a, !a.fait); save(); if (navigator.vibrate) navigator.vibrate(8); return back(); }

@@ -26,7 +26,9 @@
 - Tes listes sont stockées **uniquement sur ton iPhone**. Rien n'est envoyé sur GitHub.
   Si tu supprimes l'appli de l'écran d'accueil, l'historique est effacé.
 - **Photos automatiques** : l'appli cherche elle-même une photo à partir du nom :
-  Open Food Facts pour les articles, Wikimedia Commons puis Wikipédia pour les recettes.
+  Open Food Facts pour les articles ; pour les recettes, TheMealDB (photos de plats), puis Openverse
+  (photos Flickr…), et Wikimedia seulement en dernier recours.
+  Une photo ne plaît pas ? Bouton « Chercher une autre photo » dans la recette ou l'article.
   Le premier affichage d'une nouvelle liste peut prendre 1 à 2 minutes (Open Food Facts limite le nombre de recherches),
   ensuite l'adresse de chaque photo est mémorisée. En attendant, ou si rien n'est trouvé, un emoji s'affiche.
   Sans réseau, les emojis restent et la liste est utilisable. Menu « ⋯ » → *Rechercher à nouveau les photos* pour tout relancer.
@@ -34,7 +36,7 @@
   (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
   Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
 - **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v12` en `courses-v13`
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v13` en `courses-v14`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version,
   ou menu « ⋯ » → *Forcer la mise à jour de l'appli* (les listes sont conservées).
   La version installée est affichée en bas de ce menu.
@@ -80,7 +82,8 @@
   Traiteur, Frais, Crèmerie, Fromage, Épicerie, Épicerie salée, Épicerie sucrée, Conserves, Surgelés,
   Boissons, Hygiène, Entretien, Maison, Autre. Un autre nom marche aussi (placé avant « Autre »).
 - `photo_recherche` : mots-clés pour trouver la photo (sinon le `nom` est utilisé).
-  Articles : **en français** (Open Food Facts). Recettes : **en anglais** (Wikimedia Commons, meilleurs résultats).
+  Articles : **en français** (Open Food Facts). Recettes : **en anglais**, nom courant du plat
+  (ex. `ratatouille`, `caesar salad`, `chickpea curry`) : TheMealDB et Openverse trouvent mieux ainsi.
 - `emoji` : affiché en attendant la photo ou si aucune n'est trouvée.
 - `photo` : une adresse d'image précise, si tu en as une (prioritaire sur la recherche automatique).
 - Seuls `nom` (et `id` pour les liens) sont obligatoires ; le reste est optionnel.
