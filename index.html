@@ -122,7 +122,7 @@
   .item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; width: 100%; text-align: left;
     border-top: 1px solid var(--line); user-select: none; -webkit-user-select: none; }
   .item:first-child { border-top: 0; }
-  .thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: #fff; font-size: 24px; }
+  .thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: var(--card2); font-size: 24px; }
   .photo { font-size: 84px; }
   img.pic { display: block; }
   .emo { display: grid; place-items: center; background: var(--card2) !important; line-height: 1; }
@@ -384,7 +384,7 @@
     const em = emojiOf(e, kind), k = pkey(e, kind), c = photoCache[k];
     const u = isUrl(e.photo) ? e.photo : (c && c.u) || '';
     if (u && cls === 'photo') { const l = sizes(u, '400'); return `<img class="${cls} pic" src="${esc(l[0])}" data-fb="${esc(l.slice(1).join('|'))}" alt="" data-emo="${esc(em)}" data-k="${isUrl(e.photo) ? '' : esc(k)}" referrerpolicy="no-referrer">`; }
-    if (u) return `<img class="${cls} pic" src="${esc(u)}" alt="" data-emo="${esc(em)}" data-k="${isUrl(e.photo) ? '' : esc(k)}" loading="lazy" referrerpolicy="no-referrer">`;
+    if (u) return `<img class="${cls} pic" src="${esc(u)}" alt="" data-emo="${esc(em)}" data-k="${isUrl(e.photo) ? '' : esc(k)}" referrerpolicy="no-referrer">`;
     const pending = !(c && c.none && Date.now() - c.t < RETRY_MS);
     const attrs = pending ? ` data-k="${esc(k)}" data-kind="${kind}" data-q="${esc(queryOf(e))}" data-r="${esc(String(e.rayon || '').toLowerCase())}"` : '';
     return `<span class="${cls} pic emo"${attrs}>${esc(em)}</span>`;
@@ -659,13 +659,40 @@
     return { liste: 'Liste', recettes: 'Recettes', article: 'Article' }[s.view] || 'Retour';
   };
 
+  // ---------- Pas de flash des photos ----------
+  // Chaque rendu reconstruit la page : sans précaution, chaque <img> est recréée et le navigateur
+  // l'affiche vide un instant. On garde donc les <img> déjà chargées et on les remet en place.
+  const imgPool = new Map();   // adresse → [<img> déjà chargées]
+  function poolImgs() {
+    document.querySelectorAll('#view img, #under img').forEach(im => {
+      if (!im.complete || !im.naturalWidth) return;
+      const l = imgPool.get(im.src) || [];
+      if (!l.includes(im)) l.push(im);
+      imgPool.delete(im.src); imgPool.set(im.src, l);   // la plus récente en dernier
+    });
+    while (imgPool.size > 400) imgPool.delete(imgPool.keys().next().value);
+  }
+  // fromUnder : on peut reprendre une image affichée sous la page pendant un swipe (elle va devenir la page)
+  function reuseImgs(root, fromUnder) {
+    const under = document.getElementById('under');
+    root.querySelectorAll('img').forEach(im => {
+      const o = (imgPool.get(im.src) || []).find(x => x !== im && !root.contains(x) && (!x.isConnected || (fromUnder && under?.contains(x))));
+      if (!o) return;
+      for (const a of [...o.attributes]) if (a.name !== 'src' && !im.hasAttribute(a.name)) o.removeAttribute(a.name);
+      for (const a of [...im.attributes]) if (a.name !== 'src') o.setAttribute(a.name, a.value);
+      im.replaceWith(o);
+    });
+  }
+
   const VIEWS = { liste: viewList, recettes: viewRecipes, recette: viewRecipe, article: viewArticle, historique: viewHistory, import: viewImport };
 
   function render() {
     const l = cur();
     if (!l && ['liste', 'recettes', 'recette'].includes(ui.view)) ui.view = db.lists.length ? 'historique' : 'import';
     if (ui.view === 'article' && !l?.articles.some(a => a.id === ui.article)) ui.view = 'liste';
+    poolImgs();
     VIEWS[ui.view](l);
+    reuseImgs(V, true);
     renderNav();
     resolvePhotos();
   }
@@ -1064,6 +1091,7 @@
     const sv = V, su = ui, top = t.fromStack ? stack.pop() : null;   // la page cible ne doit pas se voir dans la pile
     V = el; ui = { ...ui, view: t.view, recipe: t.recipe, article: t.article };
     try { VIEWS[t.view](l); } catch {} finally { V = sv; ui = su; if (top) stack.push(top); }
+    reuseImgs(el, false);
   }
   function backTarget() {
     const s = stack[stack.length - 1];
