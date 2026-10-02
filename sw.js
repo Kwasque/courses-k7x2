@@ -1,5 +1,5 @@
 // Change ce numéro à chaque modification de l'appli pour forcer la mise à jour.
-const CACHE = 'courses-v18';
+const CACHE = 'courses-v19';
 const FILES = ['./', 'index.html', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
