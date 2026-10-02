@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Courses</title>
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
@@ -21,6 +21,7 @@
     --r: 18px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased; }
@@ -301,7 +302,8 @@
     paste: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6"/>',
     undo: '<path d="M4 9h11a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
-    bag: '<path d="M5 8h14l-1.2 12H6.2z M9 8a3 3 0 0 1 6 0"/>'
+    bag: '<path d="M5 8h14l-1.2 12H6.2z M9 8a3 3 0 0 1 6 0"/>',
+    archive: '<path d="M3 4h18v5H3zM5 9v11h14V9M10 13h4"/>'
   };
   const ic = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 
@@ -741,6 +743,11 @@
         db.lists.push(copy); db.current = copy.id; toast('Liste relancée');
       }
       if (t.dataset.act === 'clean') l.articles = l.articles.filter(a => !a.fait);
+      if (t.dataset.act === 'archive') {
+        const p = l.articles.filter(a => a.fait && !a.archive);
+        p.forEach(a => a.archive = true);
+        toast(p.length ? `${p.length} article${p.length > 1 ? 's' : ''} → Déjà pris` : 'Aucun article coché à archiver');
+      }
       if (t.dataset.act === 'photos') { photoCache = {}; savePhotos(); toast('Recherche des photos…'); }
       save(); return go('liste');
     }
@@ -771,6 +778,7 @@
   function openMenu() {
     const d = document.createElement('div'); d.className = 'sheet-bg';
     d.innerHTML = `<div class="sheet"><div class="grab"></div>
+      <button data-act="archive">${ic('archive')}Archiver les articles cochés</button>
       <button data-act="uncheck">${ic('undo')}Tout décocher</button>
       <button data-act="clean">${ic('check')}Retirer les articles cochés</button>
       <button data-act="dup">${ic('plus')}Relancer cette liste (nouvelle copie)</button>
@@ -803,6 +811,12 @@
   }
   setInterval(archiveIfIdle, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) archiveIfIdle(); });
+
+  // ---------- Pas de zoom ----------
+  // iOS ignore user-scalable=no : on bloque aussi le pincement à la main
+  // (le double-tap est déjà neutralisé par touch-action: manipulation).
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
+  document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
   render();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
