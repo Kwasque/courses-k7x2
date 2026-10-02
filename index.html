@@ -259,12 +259,15 @@
     z-index: 10; display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 999px;
     background: rgba(24,24,27,.82); border: 1px solid var(--line);
     -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
-  nav button { height: 46px; min-width: 46px; border-radius: 999px; display: flex; align-items: center;
-    justify-content: center; gap: 7px; color: #d0d0d5; transition: background .2s; }
-  nav button svg { width: 21px; height: 21px; }
-  nav button span { display: none; font-size: 15px; font-weight: 600; }
-  nav button.on { background: var(--lime); color: var(--ink); padding: 0 18px; }
-  nav button.on span { display: inline; }
+  /* Chaque bouton a --p entre 0 (inactif) et 1 (actif) : pendant un swipe, deux boutons sont « à moitié » actifs */
+  nav .pill { position: absolute; top: 6px; left: 0; width: 0; height: 46px; border-radius: 999px; background: var(--lime); pointer-events: none; }
+  nav button { --p: 0; position: relative; z-index: 1; height: 46px; min-width: 46px; border-radius: 999px; display: flex;
+    align-items: center; justify-content: center; padding: 0 calc(12.5px + 5.5px * var(--p)); gap: calc(7px * var(--p));
+    color: #d0d0d5; color: color-mix(in srgb, var(--ink) calc(var(--p) * 100%), #d0d0d5); }
+  @supports not (color: color-mix(in srgb, red, blue)) { nav button.on { color: var(--ink); } }
+  nav button svg { width: 21px; height: 21px; flex: none; }
+  nav button span { display: block; overflow: hidden; white-space: nowrap; font-size: 15px; font-weight: 600;
+    max-width: calc(var(--w, 90px) * var(--p)); opacity: var(--p); }
 
   /* Menu & toast */
   .sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
@@ -697,13 +700,49 @@
     resolvePhotos();
   }
 
+  // Barre du bas : construite une fois, puis animée (la pastille glisse d'un onglet à l'autre)
+  const NAV_TABS = [['liste', 'cart', 'Liste'], ['recettes', 'chef', 'Recettes'], ['historique', 'clock', 'Historique'], ['import', 'dl', 'Importer']];
+  let navP = {}, navRaf = 0, navTo = 0;
+  function navBuild() {
+    const nav = $('#nav');
+    nav.innerHTML = '<i class="pill"></i>' + NAV_TABS.map(([v, i, t]) => `<button data-nav="${v}" aria-label="${t}">${ic(i)}<span>${t}</span></button>`).join('');
+    nav.querySelectorAll('span').forEach(sp => sp.style.setProperty('--w', sp.scrollWidth + 'px'));
+  }
+  // p = { vue: 0..1 } ; la pastille se place au barycentre des boutons actifs
+  function navSet(p) {
+    navP = p;
+    const nav = $('#nav'), btns = [...nav.querySelectorAll('button')];
+    btns.forEach(b => { const q = p[b.dataset.nav] || 0; b.style.setProperty('--p', q); b.classList.toggle('on', q > .5); });
+    let L = 0, R = 0, tot = 0;
+    btns.forEach(b => { const q = p[b.dataset.nav] || 0; if (q) { L += b.offsetLeft * q; R += (b.offsetLeft + b.offsetWidth) * q; tot += q; } });
+    const pill = nav.querySelector('.pill');
+    pill.style.opacity = tot ? 1 : 0;
+    if (tot) { pill.style.left = L / tot + 'px'; pill.style.width = (R - L) / tot + 'px'; }
+  }
+  function navTween(to, ms = 240) {
+    cancelAnimationFrame(navRaf);
+    const from = { ...navP }, keys = [...new Set([...Object.keys(from), ...Object.keys(to)])], t0 = performance.now();
+    const step = () => {
+      // performance.now() plutôt que l'horodatage de requestAnimationFrame (parfois figé selon le navigateur)
+      const k = 1 - Math.pow(1 - Math.min(1, (performance.now() - t0) / ms), 3), p = {};   // même courbe que la page
+      keys.forEach(v => p[v] = (from[v] || 0) + ((to[v] || 0) - (from[v] || 0)) * k);
+      navSet(p);
+      if (k < 1) navRaf = requestAnimationFrame(step);
+    };
+    navRaf = requestAnimationFrame(step);
+    // Garantie : si les animations sont suspendues (appli en arrière-plan), on applique quand même l'état final
+    clearTimeout(navTo);
+    navTo = setTimeout(() => { cancelAnimationFrame(navRaf); const p = {}; keys.forEach(v => p[v] = to[v] || 0); navSet(p); }, ms + 80);
+  }
   function renderNav() {
     const nav = $('#nav');
     const hide = ['recette', 'article', 'import'].includes(ui.view);
     nav.classList.toggle('hidden', hide);
     if (hide) return;
-    const tabs = [['liste', 'cart', 'Liste'], ['recettes', 'chef', 'Recettes'], ['historique', 'clock', 'Historique'], ['import', 'dl', 'Importer']];
-    nav.innerHTML = tabs.map(([v, i, t]) => `<button data-nav="${v}" class="${ui.view === v ? 'on' : ''}" aria-label="${t}">${ic(i)}<span>${t}</span></button>`).join('');
+    if (!nav.querySelector('.pill')) { navBuild(); return navSet({ [ui.view]: 1 }); }
+    navSet(navP);   // repositionne la pastille si la barre était masquée (positions nulles)
+    if (navP[ui.view] === 1 && Object.values(navP).every(q => q === 0 || q === 1) && Object.values(navP).filter(q => q).length === 1) return;
+    navTween({ [ui.view]: 1 });
   }
 
   const recipeColor = (l, rid) => COLORS[Math.max(0, l.recettes.findIndex(r => r.id === rid)) % COLORS.length];
@@ -1119,6 +1158,8 @@
     // Retour : la page dessous glisse un peu (parallaxe) et s'éclaircit. Onglets : les deux pages se suivent.
     s.u.style.transform = s.back ? `translateX(${-(1 - p) * W * .3}px)` : `translateX(${s.dx - s.sign * W}px)`;
     const dim = s.u.querySelector('.udim'); dim.style.transition = tr; dim.style.opacity = s.back ? String(.5 * (1 - p)) : '0';
+    // Onglets : la pastille du bas suit le doigt (et reste à mi-chemin si on s'arrête au milieu)
+    if (!s.back && tr === 'none') { cancelAnimationFrame(navRaf); clearTimeout(navTo); navSet({ [ui.view]: 1 - p, [s.t.view]: p }); }
   }
 
   document.addEventListener('touchstart', e => {
@@ -1154,6 +1195,7 @@
     const ok = !cancel && !!s.t && (Math.abs(s.dx) > W * .35 || (Math.abs(s.dx) > 50 && Math.abs(s.v) > .35 && Math.sign(s.v) === s.sign));
     s.dx = ok ? s.sign * W : 0;
     swFrame(s, 'transform .24s cubic-bezier(.2,.8,.2,1), opacity .24s');
+    if (!s.back && s.t) navTween({ [ok ? s.t.view : ui.view]: 1 });
     setTimeout(() => {
       if (ok) { if (s.back) V.querySelector('[data-back]')?.click(); else go(s.t.view); }
       swSet('', '');

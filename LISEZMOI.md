@@ -39,7 +39,7 @@
   (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
   Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
 - **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v20` en `courses-v21`
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v21` en `courses-v22`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version,
   ou menu « ⋯ » → *Forcer la mise à jour de l'appli* (les listes sont conservées).
   La version installée est affichée en bas de ce menu.
