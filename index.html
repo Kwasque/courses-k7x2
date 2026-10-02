@@ -263,6 +263,7 @@
   .sheet button:first-of-type { border-top: 0; }
   .sheet svg { width: 20px; height: 20px; color: var(--muted); }
   .sheet .danger, .sheet .danger svg { color: var(--red); }
+  .sheet .ver { text-align: center; color: var(--dim); font-size: 12px; padding-top: 6px; }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 84px); z-index: 40;
     background: var(--lime); color: var(--ink); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 12px; white-space: nowrap; }
 </style>
@@ -303,7 +304,8 @@
     undo: '<path d="M4 9h11a5 5 0 0 1 0 10H8M4 9l4-4M4 9l4 4"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     bag: '<path d="M5 8h14l-1.2 12H6.2z M9 8a3 3 0 0 1 6 0"/>',
-    archive: '<path d="M3 4h18v5H3zM5 9v11h14V9M10 13h4"/>'
+    archive: '<path d="M3 4h18v5H3zM5 9v11h14V9M10 13h4"/>',
+    refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5M20 3.5v5h-5"/>'
   };
   const ic = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 
@@ -749,6 +751,7 @@
         toast(p.length ? `${p.length} article${p.length > 1 ? 's' : ''} → Déjà pris` : 'Aucun article coché à archiver');
       }
       if (t.dataset.act === 'photos') { photoCache = {}; savePhotos(); toast('Recherche des photos…'); }
+      if (t.dataset.act === 'update') return forceUpdate();
       save(); return go('liste');
     }
     if (t.id === 'paste') {
@@ -782,9 +785,35 @@
       <button data-act="uncheck">${ic('undo')}Tout décocher</button>
       <button data-act="clean">${ic('check')}Retirer les articles cochés</button>
       <button data-act="dup">${ic('plus')}Relancer cette liste (nouvelle copie)</button>
-      <button data-act="photos">${ic('undo')}Rechercher à nouveau les photos</button></div>`;
+      <button data-act="photos">${ic('undo')}Rechercher à nouveau les photos</button>
+      <button data-act="update">${ic('refresh')}Forcer la mise à jour de l’appli</button>
+      <div class="ver" id="ver"></div></div>`;
     document.body.appendChild(d);
+    // Le nom du cache du service worker (ex. courses-v12) sert de numéro de version
+    if (window.caches) caches.keys().then(k => {
+      const v = Math.max(...k.map(x => +(/^courses-v(\d+)$/.exec(x) || [])[1] || 0));
+      if (v > 0 && $('#ver')) $('#ver').textContent = 'Version ' + v;
+    }).catch(() => {});
   }
+
+  // Mise à jour forcée : vide les caches et le service worker, puis recharge depuis le réseau.
+  // Les listes (localStorage) ne sont pas touchées.
+  async function forceUpdate() {
+    if (!navigator.onLine) return toast('Pas de réseau');
+    toast('Mise à jour…');
+    try {
+      // On vérifie d'abord que le serveur répond, pour ne pas casser l'appli hors ligne
+      const r = await fetch('index.html', { cache: 'reload' });
+      if (!r.ok) throw new Error(r.status);
+      await Promise.all(['./', 'sw.js', 'manifest.webmanifest'].map(u => fetch(u, { cache: 'reload' }).catch(() => {})));
+      const regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+      await Promise.all(regs.map(x => x.unregister()));
+      if (window.caches) await Promise.all((await caches.keys()).map(k => caches.delete(k)));
+    } catch { return toast('Serveur injoignable, réessaie plus tard'); }
+    location.replace(location.pathname + '?maj=' + Date.now());
+  }
+  if (location.search.includes('maj=')) history.replaceState(null, '', location.pathname);
+
   let tt;
   function toast(m) {
     document.querySelector('.toast')?.remove(); clearTimeout(tt);
