@@ -37,24 +37,25 @@
   (ni défilement, ni appui), ils sont rangés dans la section « Déjà pris » en bas de la liste.
   Touche ce titre pour l'ouvrir ; décocher un article le remet dans « À acheter ».
 - **Recettes faites** : dans une recette, bouton « Marquer comme faite ». Elle passe en fin de grille avec un badge « Faite ».
-- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v14` en `courses-v15`
+- **Mettre à jour l'appli** : remplace les fichiers sur GitHub, en changeant `courses-v15` en `courses-v16`
   (etc.) en haut de `sw.js`. Ferme et rouvre l'appli deux fois pour voir la nouvelle version,
   ou menu « ⋯ » → *Forcer la mise à jour de l'appli* (les listes sont conservées).
   La version installée est affichée en bas de ce menu.
 
-## Photos Pexels (recommandé)
+## Photos Unsplash (recommandé)
 
-Avec une clé Pexels, les photos des articles **et** des recettes viennent d'abord de Pexels (bien plus jolies).
+Avec une clé Unsplash, les photos des articles **et** des recettes viennent d'abord d'Unsplash (bien plus jolies).
 
-1. Crée un compte gratuit sur https://www.pexels.com/api/ et récupère ta clé API.
-2. Dans l'appli : menu « ⋯ » → *Clé API Pexels* → colle la clé → *Enregistrer*.
+1. Crée un compte gratuit sur https://unsplash.com/join, puis va sur https://unsplash.com/oauth/applications
+   → **New Application** → accepte les conditions → donne un nom (ex. « Courses ») → copie l'**Access Key**
+   (pas la Secret Key).
+2. Dans l'appli : menu « ⋯ » → *Clé API Unsplash* → colle la clé → *Enregistrer*.
    La clé reste **uniquement sur le téléphone** (jamais sur GitHub). L'appli propose ensuite
    de remplacer les photos de la liste en cours.
-3. Limite gratuite : **200 recherches par heure** (20 000 par mois). Une barre en haut du menu « ⋯ »
-   montre ce qui a été utilisé dans l'heure (compté par ce téléphone).
+3. Limite gratuite : **50 recherches par heure**. Une barre en haut du menu « ⋯ » montre le quota utilisé.
    Chaque article ou recette coûte **1 recherche, une seule fois** : 15 photos sont récupérées d'un coup
    et mémorisées. « Choisir une autre photo » est gratuit ; seul « Plus de photos » coûte 1 recherche.
-   Si le quota est atteint, l'appli se rabat sur les autres sources.
+   Quota atteint : les emojis restent et les photos arrivent toutes seules l'heure suivante.
 
 ## Format du JSON
 

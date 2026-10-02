@@ -335,19 +335,19 @@
   const OFF_RX = /(images\.openfoodfacts\.org\/.+)\.(100|200|400|full)\.jpg$/;
   const offSize = (u, size) => OFF_RX.test(u) ? String(u).replace(OFF_RX, `$1.${size}.jpg`) : u;
   // Liste d'URL à essayer, de la meilleure à la moins bonne (repli automatique si une taille n'existe pas)
-  // Pexels : la taille se règle dans l'URL (on stocke la version 350 px de haut, assez pour les vignettes)
-  const PEX_RX = /^(https:\/\/images\.pexels\.com\/photos\/[^?]+)/;
-  const pexSize = (u, w) => { const m = PEX_RX.exec(u); return m ? `${m[1]}?auto=compress&cs=tinysrgb&w=${w}` : u; };
-  const sizes = (u, best) => PEX_RX.test(u) ? [...new Set([pexSize(u, best === 'full' ? 1880 : 940), u])]
+  // Unsplash : la largeur se règle dans l'URL (paramètre w) ; on stocke la version 400 px
+  const UNS_RX = /^https:\/\/images\.unsplash\.com\//;
+  const unsSize = (u, w) => { try { const x = new URL(u); x.searchParams.set('w', w); x.searchParams.set('q', '80'); return x.href; } catch { return u; } };
+  const sizes = (u, best) => UNS_RX.test(u) ? [...new Set([unsSize(u, best === 'full' ? 2000 : 1080), u])]
     : [...new Set((best === 'full' ? ['full', '400', '200'] : ['400', '200']).map(z => offSize(u, z)).concat(u))];
-  const thumbOf = u => PEX_RX.test(u) ? pexSize(u, 300) : u;
+  const thumbOf = u => UNS_RX.test(u) ? unsSize(u, 300) : u;
   function setSrc(im, list) { im.src = list[0]; if (list.length > 1) im.dataset.fb = list.slice(1).join('|'); }
   const uid = () => Math.random().toString(36).slice(2, 10);
   const slug = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const fmtDate = d => { try { return new Date(d + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' }); } catch { return d; } };
 
   // ---------- Photos automatiques ----------
-  // Avec une clé Pexels : Pexels d'abord (articles et recettes).
+  // Avec une clé Unsplash : Unsplash d'abord (articles et recettes).
   // Sinon / en repli — articles : Open Food Facts ; recettes : TheMealDB, Openverse, puis Wikimedia.
   // Chaque recherche garde toutes les photos trouvées (alts) : en choisir une autre ne coûte aucune requête.
   const PHOTOS = 'courses.photos.v1';
@@ -429,51 +429,57 @@
     return (d?.products || []).map(x => x.image_front_small_url || x.image_front_url).filter(Boolean);
   }
 
-  // ---------- Pexels (clé perso, stockée uniquement sur ce téléphone) ----------
-  // Limite Pexels : 200 recherches / heure. 1 recherche = 1 requête, qu'elle renvoie 1 ou 15 photos.
-  const PEX_KEY = 'courses.pexels.key', PEX_LOG = 'courses.pexels.log', PEX_INFO = 'courses.pexels.info';
-  const PEX_HOUR = 200, PEX_PER = 15;
+  // ---------- Unsplash (clé perso, stockée uniquement sur ce téléphone) ----------
+  // Limite Unsplash (mode « demo ») : 50 recherches / heure. 1 recherche = 1 requête, qu'elle renvoie 1 ou 15 photos.
+  const U_KEY = 'courses.unsplash.key', U_LOG = 'courses.unsplash.log', U_INFO = 'courses.unsplash.info';
+  const U_PER = 15;
   const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-  let pexKey = lsGet(PEX_KEY, '');
-  const pexUsed = () => lsGet(PEX_LOG, []).filter(t => Date.now() - t < 3600e3);
-  const pexErr = err => ({ quota: 'Quota Pexels de l’heure atteint', badkey: 'Clé Pexels refusée' })[err?.message] || 'Pexels injoignable';
+  let uKey = lsGet(U_KEY, '');
+  const uHour = () => lsGet(U_INFO, null)?.lim || 50;
+  const uUsed = () => lsGet(U_LOG, []).filter(t => Date.now() - t < 3600e3);
+  const uErr = err => ({ quota: 'Quota Unsplash de l’heure atteint', badkey: 'Clé Unsplash refusée' })[err?.message] || 'Unsplash injoignable';
 
-  async function pexSearch(q, page = 1, kind = 'r', key = pexKey) {
+  async function uSearch(q, page = 1, kind = 'r', key = uKey) {
     if (!key) throw new Error('nokey');
-    const used = pexUsed();
-    if (used.length >= PEX_HOUR) throw new Error('quota');
-    lsSet(PEX_LOG, [...used, Date.now()]);
+    const used = uUsed();
+    if (used.length >= uHour()) throw new Error('quota');
+    lsSet(U_LOG, [...used, Date.now()]);
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 9000);
     try {
-      const r = await fetch(`https://api.pexels.com/v1/search?query=${enc(q)}&per_page=${PEX_PER}&page=${page}${kind === 'a' ? '&locale=fr-FR' : ''}`,
-        { headers: { Authorization: key }, signal: ctl.signal });
-      // Compteur mensuel renvoyé par Pexels (si le navigateur nous laisse le lire)
+      const r = await fetch(`https://api.unsplash.com/search/photos?query=${enc(q)}&per_page=${U_PER}&page=${page}&content_filter=high${kind === 'a' ? '&lang=fr' : ''}`,
+        { headers: { Authorization: 'Client-ID ' + key, 'Accept-Version': 'v1' }, signal: ctl.signal });
+      // Unsplash renvoie le quota restant de l'heure : on s'en sert pour la barre du menu
       const rem = r.headers.get('X-Ratelimit-Remaining'), lim = r.headers.get('X-Ratelimit-Limit');
-      if (rem != null && lim != null) lsSet(PEX_INFO, { rem: +rem, lim: +lim, t: Date.now() });
-      if (r.status === 401 || r.status === 403) throw new Error('badkey');
-      if (r.status === 429) { lsSet(PEX_LOG, Array(PEX_HOUR).fill(Date.now())); throw new Error('quota'); }
+      if (rem != null && lim != null) lsSet(U_INFO, { rem: +rem, lim: +lim, t: Date.now() });
+      if (r.status === 401) throw new Error('badkey');
+      if (r.status === 429 || (r.status === 403 && rem === '0')) { lsSet(U_LOG, Array(uHour()).fill(Date.now())); throw new Error('quota'); }
+      if (r.status === 403) throw new Error('badkey');
       if (!r.ok) throw new Error(r.status);
-      return ((await r.json()).photos || []).map(x => x.src?.medium).filter(Boolean);
+      return ((await r.json()).results || []).map(x => x.urls?.small).filter(Boolean);
     } finally { clearTimeout(tm); }
   }
 
   const inflight = {};
   function lookup(k, kind, q) {
     if (inflight[k]) return inflight[k];
-    const fromPexels = q => pexSearch(q, 1, kind);
-    const chain = [...(pexKey ? [fromPexels] : []), ...(kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF])];
+    const fromUnsplash = q => uSearch(q, 1, kind);
+    const chain = [...(uKey ? [fromUnsplash] : []), ...(kind === 'r' ? [fromMealDB, fromOpenverse, fromCommons, fromWikipedia] : [fromOFF])];
     return inflight[k] = (async () => {
       let networkOk = false;
       for (const f of chain) {
         try {
           const list = await f(q); networkOk = true;
           if (list.length) {
-            photoCache[k] = { u: list[0], t: Date.now(), alts: list.slice(0, 40), pg: f === fromPexels ? 1 : 0 };
+            photoCache[k] = { u: list[0], t: Date.now(), alts: list.slice(0, 40), pg: f === fromUnsplash ? 1 : 0 };
             savePhotos(); return list[0];
           }
         }
-        catch { /* hors ligne, quota atteint ou service indisponible : on essaie le suivant */ }
+        catch (err) {
+          // Quota Unsplash atteint : on garde l'emoji et on réessaiera plus tard (pas de photo de repli mémorisée)
+          if (err.message === 'quota') return null;
+          /* hors ligne ou service indisponible : on essaie le suivant */
+        }
       }
       if (networkOk) { photoCache[k] = { none: true, t: Date.now() }; savePhotos(); }
       return null;
@@ -502,7 +508,7 @@
   }
   window.addEventListener('online', () => resolvePhotos());
 
-  // Sélecteur : affiche les photos déjà trouvées (gratuit) ; « Plus de photos » = 1 recherche Pexels
+  // Sélecteur : affiche les photos déjà trouvées (gratuit) ; « Plus de photos » = 1 recherche Unsplash
   async function openPicker(e, kind) {
     const k = pkey(e, kind), q = queryOf(e);
     if (!photoCache[k]?.alts?.length) {
@@ -516,8 +522,8 @@
       const c = photoCache[k];
       d.innerHTML = `<div class="sheet picker"><div class="grab"></div><p class="label">Choisis une photo</p>
         <div class="pgrid">${c.alts.map(u => `<button data-pick="${esc(u)}" class="${u === c.u ? 'on' : ''}"><img src="${esc(thumbOf(u))}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>
-        ${pexKey ? `<button class="ghost" data-more>${ic('plus')}Plus de photos <small>· 1 recherche Pexels</small></button>` : ''}
-        ${c.pg ? '<div class="ver">Photos fournies par Pexels</div>' : ''}</div>`;
+        ${uKey ? `<button class="ghost" data-more>${ic('plus')}Plus de photos <small>· 1 recherche Unsplash</small></button>` : ''}
+        ${c.pg ? '<div class="ver">Photos fournies par Unsplash</div>' : ''}</div>`;
     };
     draw(); document.body.appendChild(d);
     d.addEventListener('click', async ev => {
@@ -529,11 +535,11 @@
       if (!ev.target.closest('[data-more]')) return;
       const c = photoCache[k], page = (c.pg || 0) + 1, y = d.querySelector('.sheet').scrollTop;
       try {
-        const list = await pexSearch(q, page, kind);
+        const list = await uSearch(q, page, kind);
         if (!list.length) return toast('Pas d’autres photos');
         photoCache[k] = { ...c, alts: [...new Set([...c.alts, ...list])], pg: page }; savePhotos();
         draw(); d.querySelector('.sheet').scrollTop = y + 200;
-      } catch (err) { toast(pexErr(err)); }
+      } catch (err) { toast(uErr(err)); }
     });
   }
 
@@ -852,7 +858,7 @@
       }
       if (t.dataset.act === 'photos') { photoCache = { _v: 2 }; savePhotos(); toast('Recherche des photos…'); }
       if (t.dataset.act === 'update') return forceUpdate();
-      if (t.dataset.act === 'pexels') return openPexels();
+      if (t.dataset.act === 'unsplash') return openUnsplash();
       save(); return go('liste');
     }
     if (t.id === 'paste') {
@@ -887,7 +893,7 @@
       <button data-act="clean">${ic('check')}Retirer les articles cochés</button>
       <button data-act="dup">${ic('plus')}Relancer cette liste (nouvelle copie)</button>
       <button data-act="photos">${ic('undo')}Rechercher à nouveau les photos</button>
-      <button data-act="pexels">${ic('key')}Clé API Pexels${pexKey ? ' · configurée' : ''}</button>
+      <button data-act="unsplash">${ic('key')}Clé API Unsplash${uKey ? ' · configurée' : ''}</button>
       <button data-act="update">${ic('refresh')}Forcer la mise à jour de l’appli</button>
       <div class="ver" id="ver"></div></div>`;
     document.body.appendChild(d);
@@ -899,37 +905,38 @@
   }
 
   function quotaHtml() {
-    if (!pexKey) return '';
-    const used = pexUsed(), n = Math.min(used.length, PEX_HOUR), info = lsGet(PEX_INFO, null);
+    if (!uKey) return '';
+    const used = uUsed(), H = uHour(), info = lsGet(U_INFO, null);
+    // Le compteur d'Unsplash (toutes requêtes de la clé) prime sur le nôtre s'il date de moins d'une heure
+    const n = Math.min(H, Math.max(used.length, info && Date.now() - info.t < 3600e3 ? info.lim - info.rem : 0));
     const hm = t => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const sub = n >= PEX_HOUR ? `Quota plein · de nouveau dispo vers ${hm(Math.min(...used) + 3600e3)}`
-      : `${PEX_HOUR - n} recherche${PEX_HOUR - n > 1 ? 's' : ''} restante${PEX_HOUR - n > 1 ? 's' : ''} cette heure`;
-    const month = info?.lim ? ` · ${info.rem.toLocaleString('fr-FR')} / ${info.lim.toLocaleString('fr-FR')} ce mois` : '';
-    return `<div class="quota"><div class="goal-top"><b>Quota Pexels</b><span>${n} / ${PEX_HOUR} cette heure</span></div>
-      <div class="bar ${n / PEX_HOUR > .8 ? 'hot' : ''}"><i style="width:${n / PEX_HOUR * 100}%"></i></div><div class="qsub">${sub}${month}</div></div>`;
+    const sub = n >= H ? `Quota plein · de nouveau dispo vers ${hm((used.length ? Math.min(...used) : info.t) + 3600e3)}`
+      : `${H - n} recherche${H - n > 1 ? 's' : ''} restante${H - n > 1 ? 's' : ''} cette heure`;
+    return `<div class="quota"><div class="goal-top"><b>Quota Unsplash</b><span>${n} / ${H} cette heure</span></div>
+      <div class="bar ${n / H > .8 ? 'hot' : ''}"><i style="width:${n / H * 100}%"></i></div><div class="qsub">${sub}</div></div>`;
   }
 
-  function openPexels() {
+  function openUnsplash() {
     const d = document.createElement('div'); d.className = 'sheet-bg';
-    d.innerHTML = `<div class="sheet"><div class="grab"></div><p class="label">Photos Pexels</p>
-      <p class="hint" style="margin:0 0 12px">Crée une clé gratuite sur <a href="https://www.pexels.com/api/" target="_blank" rel="noopener">pexels.com/api</a> puis colle-la ici. Elle reste uniquement sur ce téléphone.</p>
-      <div class="fields"><input id="pexIn" value="${esc(pexKey)}" placeholder="Clé API Pexels" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-      <button class="ghost lime" id="pexSave">${ic('check')}Enregistrer</button>
-      ${pexKey ? `<button class="ghost" id="pexDel">${ic('trash')}Supprimer la clé</button>` : ''}
-      <div class="err" id="pexErr"></div></div>`;
+    d.innerHTML = `<div class="sheet"><div class="grab"></div><p class="label">Photos Unsplash</p>
+      <p class="hint" style="margin:0 0 12px">Sur <a href="https://unsplash.com/oauth/applications" target="_blank" rel="noopener">unsplash.com/oauth/applications</a> : crée un compte, « New Application », puis copie l’<b>Access Key</b> ici. Elle reste uniquement sur ce téléphone.</p>
+      <div class="fields"><input id="uIn" value="${esc(uKey)}" placeholder="Access Key Unsplash" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <button class="ghost lime" id="uSave">${ic('check')}Enregistrer</button>
+      ${uKey ? `<button class="ghost" id="uDel">${ic('trash')}Supprimer la clé</button>` : ''}
+      <div class="err" id="uErr"></div></div>`;
     document.body.appendChild(d);
     d.addEventListener('click', async ev => {
-      if (ev.target.closest('#pexDel')) { pexKey = ''; lsSet(PEX_KEY, ''); d.remove(); toast('Clé supprimée'); return; }
-      if (!ev.target.closest('#pexSave')) return;
-      const v = $('#pexIn').value.trim(); if (!v) return;
-      $('#pexErr').textContent = 'Vérification de la clé…';
-      try { await pexSearch('food', 1, 'r', v); }   // coûte 1 recherche
-      catch (err) { $('#pexErr').textContent = pexErr(err); return; }
-      pexKey = v; lsSet(PEX_KEY, v); d.remove();
+      if (ev.target.closest('#uDel')) { uKey = ''; lsSet(U_KEY, ''); d.remove(); toast('Clé supprimée'); return; }
+      if (!ev.target.closest('#uSave')) return;
+      const v = $('#uIn').value.trim(); if (!v) return;
+      $('#uErr').textContent = 'Vérification de la clé…';
+      try { await uSearch('food', 1, 'r', v); }   // coûte 1 recherche
+      catch (err) { $('#uErr').textContent = uErr(err); return; }
+      uKey = v; lsSet(U_KEY, v); d.remove();
       const l = cur();
       const keys = l ? [...new Set([...l.articles.filter(a => !isUrl(a.photo)).map(a => pkey(a, 'a')), ...l.recettes.filter(r => !isUrl(r.photo)).map(r => pkey(r, 'r'))])] : [];
-      const left = PEX_HOUR - pexUsed().length;
-      if (keys.length && confirm(`Clé enregistrée ✓\n\nRemplacer les photos de la liste en cours par celles de Pexels ?\n${keys.length} recherches (il en reste ${left} cette heure).`)) {
+      const left = uHour() - uUsed().length;
+      if (keys.length && confirm(`Clé enregistrée ✓\n\nRemplacer les photos de la liste en cours par celles d’Unsplash ?\n${keys.length} recherches (il en reste ${left} cette heure).`)) {
         keys.forEach(k => delete photoCache[k]); savePhotos();
       } else toast('Clé enregistrée ✓');
       render();
