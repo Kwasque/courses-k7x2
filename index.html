@@ -897,6 +897,8 @@
       <button data-act="update">${ic('refresh')}Forcer la mise à jour de l’appli</button>
       <div class="ver" id="ver"></div></div>`;
     document.body.appendChild(d);
+    // Compte à rebours du quota mis à jour tant que le menu est ouvert
+    if (uKey) { const iv = setInterval(() => { const q = d.querySelector('.quota'); if (!d.isConnected || !q) return clearInterval(iv); q.outerHTML = quotaHtml(); }, 15000); }
     // Le nom du cache du service worker (ex. courses-v12) sert de numéro de version
     if (window.caches) caches.keys().then(k => {
       const v = Math.max(...k.map(x => +(/^courses-v(\d+)$/.exec(x) || [])[1] || 0));
@@ -909,9 +911,14 @@
     const used = uUsed(), H = uHour(), info = lsGet(U_INFO, null);
     // Le compteur d'Unsplash (toutes requêtes de la clé) prime sur le nôtre s'il date de moins d'une heure
     const n = Math.min(H, Math.max(used.length, info && Date.now() - info.t < 3600e3 ? info.lim - info.rem : 0));
+    // Fenêtre glissante d'une heure : chaque recherche est « rendue » 1 h après avoir été faite
+    const stamps = used.length ? used : info && Date.now() - info.t < 3600e3 ? [info.t] : [];
     const hm = t => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const sub = n >= H ? `Quota plein · de nouveau dispo vers ${hm((used.length ? Math.min(...used) : info.t) + 3600e3)}`
-      : `${H - n} recherche${H - n > 1 ? 's' : ''} restante${H - n > 1 ? 's' : ''} cette heure`;
+    const until = t => { const m = Math.max(1, Math.ceil((t + 3600e3 - Date.now()) / 60000)); return `dans ${m} min (${hm(t + 3600e3)})`; };
+    const left = `${H - n} recherche${H - n > 1 ? 's' : ''} restante${H - n > 1 ? 's' : ''}`;
+    const sub = !n || !stamps.length ? left
+      : n >= H ? `Quota plein · prochaine recherche ${until(Math.min(...stamps))}<br>Remis à zéro ${until(Math.max(...stamps))}`
+      : `${left} · remis à zéro ${until(Math.max(...stamps))}`;
     return `<div class="quota"><div class="goal-top"><b>Quota Unsplash</b><span>${n} / ${H} cette heure</span></div>
       <div class="bar ${n / H > .8 ? 'hot' : ''}"><i style="width:${n / H * 100}%"></i></div><div class="qsub">${sub}</div></div>`;
   }
